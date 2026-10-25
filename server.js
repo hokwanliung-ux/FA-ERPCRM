@@ -136,7 +136,7 @@ async function handler(req, res) {
             state.products=[];state.orders=[];state.cases=[];state.customers=[];state.leads=[];state.movements=[];state.activity=[];state.syncHistory=[];state.lastSync='Not connected';state.settings={role:'Owner / Admin',warehouse:'Jakarta studio',threshold:10,timezone:'Asia/Jakarta'};return true;
           }
           const oldOrders=state.orders.length,oldCases=state.cases.length,oldActivity=state.activity.length;
-          state.orders=state.orders.filter(order=>order.source!=='Demo import');
+          state.orders=state.orders.filter(order=>order.source!=='Demo import'&&!(!order.sourceKey&&/^FA-\d{6}-\d{4}$/.test(String(order.id||''))));
           state.cases=state.cases.filter(item=>!(item.id==='CASE-023'&&item.platform==='Shopee'));
           state.activity=state.activity.filter(item=>!String(item.text||'').includes('FA-260126-1048 imported from Shopee'));
           return oldOrders!==state.orders.length||oldCases!==state.cases.length||oldActivity!==state.activity.length;
