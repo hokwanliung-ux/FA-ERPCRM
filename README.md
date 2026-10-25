@@ -1,6 +1,6 @@
 # Fragma Alchemy ERP + CRM
 
-A dark commerce-operations workspace for a small marketplace business. This first release combines a local sign-in server with interactive sample workflows. TikTok Shop, Tokopedia, and Shopee are **not connected** and no marketplace API is called.
+A dark commerce-operations workspace for a small marketplace business. This first release combines a local sign-in server with interactive sample workflows. TikTok Shop and Tokopedia are **not connected** and no marketplace API is called.
 
 ## Run locally
 
@@ -24,12 +24,12 @@ Business records are stored in the local SQLite database, so signed-in users on 
 
 - Dashboard sales summaries, marketplace breakdown, recent orders, low-stock watch, and activity.
 - Searchable order and fulfillment queues; update sample order status and tracking.
-- Owner/Operations seller export import for `.xlsx`, `.csv`, and `.tsv`; previews, groups product rows by marketplace order, de-duplicates repeated lines and re-imports, and retains canceled/return orders with explicit statuses.
+- Owner/Operations TikTok Shop and Tokopedia seller export import for `.xlsx`, `.csv`, and `.tsv`; previews, groups product rows by marketplace order, de-duplicates repeated lines and re-imports, and retains canceled/return orders with explicit statuses.
 - Product catalog add/edit; inventory count, adjustment, reorder point, and stock movement history with user and time.
 - Support and returns cases; customer records and a lightweight lead pipeline.
 - Operational report estimates and CSV exports.
 - Marketplace connection checklist and demo sync history. Demo sync records an attempt without contacting any store.
-- Owner-only user management, owner backup download and confirmed restore, and a persistent audit log.
+- Owner-only user management, two-step workspace-data clearing, backup and confirmed restore, a persistent audit log, and a logout menu.
 - SQLite-backed shared workspace records with server-side role checks: Owner/Admin has full access, Operations manages fulfillment, stock and workspace operations, Support handles cases and customer records, and Viewer is read-only.
 
 ## Data boundaries
@@ -40,7 +40,7 @@ Owner/Admin can download a JSON workspace backup in **Settings → Backup & reco
 
 ## Marketplace integration status
 
-TikTok Shop, Tokopedia, and Shopee connectors are **not implemented or authorized**. Before enabling a live connector:
+TikTok Shop and Tokopedia connectors are **not implemented or authorized**. Before enabling a live connector:
 
 1. Obtain official partner / Open Platform access and request only necessary scopes.
 2. Complete each marketplace's seller authorization and test with an approved test account where available.
