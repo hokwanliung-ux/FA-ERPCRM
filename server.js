@@ -110,7 +110,7 @@ async function handler(req, res) {
     if(req.method==='PUT'&&url.pathname==='/api/state'){
       if(!originAllowed(req))return send(res,403,{error:'Request origin rejected.'});
       let body;try{body=await readBody(req,2_000_000)}catch(e){return send(res,400,{error:e.message})}
-      const row=db.prepare('SELECT payload FROM business_state WHERE id=1').get();
+      const row=db.prepare('SELECT payload,revision FROM business_state WHERE id=1').get();
       const allowed={
         'Owner/Admin':new Set(['products','orders','cases','customers','leads','movements','activity','settings','lastSync','syncHistory']),
         Operations:new Set(['products','orders','movements','activity','settings','lastSync','syncHistory']),
