@@ -24,6 +24,7 @@ Business records are stored in the local SQLite database, so signed-in users on 
 
 - Dashboard sales summaries, marketplace breakdown, recent orders, low-stock watch, and activity.
 - Searchable order and fulfillment queues; update sample order status and tracking.
+- Owner/Operations seller export import for `.xlsx`, `.csv`, and `.tsv`; previews, groups product rows by marketplace order, de-duplicates repeated lines and re-imports, and retains canceled/return orders with explicit statuses.
 - Product catalog add/edit; inventory count, adjustment, reorder point, and stock movement history with user and time.
 - Support and returns cases; customer records and a lightweight lead pipeline.
 - Operational report estimates and CSV exports.
@@ -33,7 +34,7 @@ Business records are stored in the local SQLite database, so signed-in users on 
 
 ## Data boundaries
 
-Marketplace orders, customers, cases, and settlement estimates are still sample data. Fees and gross margin are illustrative, not settlement records or accounting results. Marketplace buyer data must not be contacted outside platform rules. Never enter marketplace credentials in this demo.
+Marketplace connections are not live. Orders imported from seller exports are workspace records, not marketplace API syncs. Imports omit buyer names, usernames, phone numbers, addresses, and messages; they do not update stock or post anything to a marketplace. Fees absent from the workbook remain marked unavailable, and reports exclude built-in sample orders after the first real import. Marketplace buyer data must not be contacted outside platform rules. Never enter marketplace credentials in this demo.
 
 Owner/Admin can download a JSON workspace backup in **Settings → Backup & recovery** and restore it there. Restore replaces current business records and requires confirmation. Backup files contain business records but exclude user accounts and credentials; store backups securely. The SQLite file in `data/fragma.sqlite` also contains local user account hashes and should not be copied to a public repository.
 
