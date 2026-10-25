@@ -87,14 +87,63 @@ function validWorkspaceState(state) {
 function recordAudit(user, action) {
   db.prepare('INSERT INTO audit_events(user_id,user_name,role,action) VALUES(?,?,?,?)').run(user.id,user.name,user.role,String(action).slice(0,240));
 }
+function mutateWorkspaceState(user, action, mutate) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const row=db.prepare('SELECT payload,revision FROM business_state WHERE id=1').get();
+    if(!row)throw new Error('Workspace has not been initialized.');
+    const state=JSON.parse(row.payload);
+    if(!validWorkspaceState(state))throw new Error('Stored workspace data is invalid.');
+    if(!mutate(state)) { db.exec('COMMIT'); return {ok:true,unchanged:true,state,revision:row.revision}; }
+    if(!validWorkspaceState(state))throw new Error('Workspace data is incomplete or invalid.');
+    const payload=JSON.stringify(state);
+    if(Buffer.byteLength(payload)>2_000_000)throw new Error('Workspace data exceeds the 2 MB limit.');
+    const result=db.prepare('UPDATE business_state SET payload=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=1 AND revision=?').run(payload,row.revision);
+    if(result.changes!==1)throw new Error('Workspace changed while the operation was running. Please try again.');
+    recordAudit(user,action);
+    const revision=db.prepare('SELECT revision FROM business_state WHERE id=1').get().revision;
+    db.exec('COMMIT');
+    return {ok:true,state,revision};
+  } catch(error) {
+    try{db.exec('ROLLBACK')}catch{}
+    throw error;
+  }
+}
 async function handler(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'same-origin');
   const url = new URL(req.url, 'http://localhost');
-  if (url.pathname.startsWith('/api/state') || url.pathname.startsWith('/api/backup') || url.pathname.startsWith('/api/audit')) {
+  if (url.pathname.startsWith('/api/state') || url.pathname.startsWith('/api/backup') || url.pathname.startsWith('/api/audit') || url.pathname.startsWith('/api/workspace') || url.pathname.startsWith('/api/orders/clear')) {
     const session=sessionFor(req);
     if(!session?.user?.active)return send(res,401,{error:'Sign in required.'});
+    if(req.method==='POST'&&['/api/orders/clear','/api/workspace/clear','/api/workspace/cleanup-demo'].includes(url.pathname)){
+      if(!originAllowed(req))return send(res,403,{error:'Request origin rejected.'});
+      if(!ownerRoles.has(session.user.role))return send(res,403,{error:'Owner/Admin access required.'});
+      const now=new Date().toLocaleString('en-ID',{timeZone:'Asia/Jakarta',dateStyle:'medium',timeStyle:'short'});
+      try{
+        const result=mutateWorkspaceState(session.user,{
+          '/api/orders/clear':'Owner cleared all orders and fulfillment records',
+          '/api/workspace/clear':'Owner cleared all workspace business data',
+          '/api/workspace/cleanup-demo':'Removed legacy demo orders and unsupported marketplace sample records'
+        }[url.pathname],state=>{
+          if(url.pathname==='/api/orders/clear'){
+            if(!state.orders.length)return false;
+            for(const order of state.orders){if(order.stockReserved)for(const [sku,qty] of order.items){const product=state.products.find(item=>item.sku===sku);if(product){product.stock+=qty;state.movements.unshift({id:'MOV-'+crypto.randomBytes(4).toString('hex'),sku,type:`Cleared manual order ${order.id} · stock returned`,qty,location:state.settings.warehouse||'Warehouse',date:now})}}}
+            state.orders=[];state.activity.unshift({text:'Owner cleared all order and fulfillment records',time:now});state.activity=state.activity.slice(0,30);return true;
+          }
+          if(url.pathname==='/api/workspace/clear'){
+            state.products=[];state.orders=[];state.cases=[];state.customers=[];state.leads=[];state.movements=[];state.activity=[];state.syncHistory=[];state.lastSync='Not connected';state.settings={role:'Owner / Admin',warehouse:'Jakarta studio',threshold:10,timezone:'Asia/Jakarta'};return true;
+          }
+          const oldOrders=state.orders.length,oldCases=state.cases.length,oldActivity=state.activity.length;
+          state.orders=state.orders.filter(order=>order.source!=='Demo import');
+          state.cases=state.cases.filter(item=>!(item.id==='CASE-023'&&item.platform==='Shopee'));
+          state.activity=state.activity.filter(item=>!String(item.text||'').includes('FA-260126-1048 imported from Shopee'));
+          return oldOrders!==state.orders.length||oldCases!==state.cases.length||oldActivity!==state.activity.length;
+        });
+        return send(res,200,result);
+      }catch(error){return send(res,400,{error:error.message||'Could not update workspace data.'})}
+    }
     if(req.method==='GET'&&url.pathname==='/api/state'){
       const row=db.prepare('SELECT payload,updated_at FROM business_state WHERE id=1').get();
       if(!row)return send(res,200,{state:null,updatedAt:null,revision:0});
