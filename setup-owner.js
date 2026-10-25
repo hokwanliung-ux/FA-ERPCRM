@@ -1,0 +1,20 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { DatabaseSync } = require('node:sqlite');
+
+const root = __dirname;
+const bootstrapPath = path.join(root, '.owner-bootstrap.json');
+const dataDir = path.join(root, 'data');
+if (!fs.existsSync(bootstrapPath)) throw new Error('Create the ignored .owner-bootstrap.json file first; see README.md.');
+fs.mkdirSync(dataDir, { recursive: true });
+const db = new DatabaseSync(path.join(dataDir, 'fragma.sqlite'));
+db.exec(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,email TEXT NOT NULL UNIQUE COLLATE NOCASE,salt TEXT NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n) throw new Error('A user already exists. Refusing to replace the existing database.');
+const owner = JSON.parse(fs.readFileSync(bootstrapPath, 'utf8'));
+if (!owner.email || !owner.password || owner.password.length < 10) throw new Error('Owner email is required and the password must be at least 10 characters.');
+const salt = crypto.randomBytes(16).toString('hex');
+const hash = crypto.scryptSync(owner.password, salt, 64).toString('hex');
+db.prepare('INSERT INTO users(name,email,salt,password_hash,role) VALUES(?,?,?,?,?)').run(owner.name || 'Fragma Alchemy', owner.email.trim().toLowerCase(), salt, hash, 'Owner/Admin');
+fs.unlinkSync(bootstrapPath);
+console.log(`Owner account initialized for ${owner.email}. Bootstrap file removed; only a salted password hash is stored.`);
