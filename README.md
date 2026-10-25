@@ -18,21 +18,24 @@ The initial Owner email is `fragmaalchemy@gmail.com`. Its password is the one su
 
 In a fresh clone, first-time setup creates the local Owner. Local account data lives in `data/fragma.sqlite`, which is ignored by Git. To initialize an Owner non-interactively, create a temporary `.owner-bootstrap.json` containing `name`, `email`, and `password`, then run `node setup-owner.js`; the script hashes the password and removes the bootstrap file. Never commit either file.
 
-The demo role controls which sections and actions appear. Sample business data is still kept in browser `localStorage`, shared within that browser profile. This is a local demo, not a production identity or access system; do not store real buyer records in it. There are no remote backups.
+Business records are stored in the local SQLite database, so signed-in users on the same running server share changes. Existing browser demo data is imported into the server once by the Owner at first login. Account and role checks are enforced by the server for workspace writes. The app still contains sample marketplace records; replace them with verified business data before relying on operational reports.
 
 ## Included workflows
 
 - Dashboard sales summaries, marketplace breakdown, recent orders, low-stock watch, and activity.
 - Searchable order and fulfillment queues; update sample order status and tracking.
-- Product catalog add/edit; inventory count, adjustment, reorder point, and movement history.
+- Product catalog add/edit; inventory count, adjustment, reorder point, and stock movement history with user and time.
 - Support and returns cases; customer records and a lightweight lead pipeline.
 - Operational report estimates and CSV exports.
 - Marketplace connection checklist and demo sync history. Demo sync records an attempt without contacting any store.
-- Owner-only user management and role-specific workspace navigation.
+- Owner-only user management, owner backup download and confirmed restore, and a persistent audit log.
+- SQLite-backed shared workspace records with server-side role checks: Owner/Admin has full access, Operations manages fulfillment, stock and workspace operations, Support handles cases and customer records, and Viewer is read-only.
 
 ## Data boundaries
 
-Marketplace orders, customers, cases, sales charts, and settlement estimates are sample data. Fees and gross margin are illustrative, not settlement records or accounting results. Marketplace buyer data must not be contacted outside platform rules. Never enter marketplace credentials in this demo.
+Marketplace orders, customers, cases, and settlement estimates are still sample data. Fees and gross margin are illustrative, not settlement records or accounting results. Marketplace buyer data must not be contacted outside platform rules. Never enter marketplace credentials in this demo.
+
+Owner/Admin can download a JSON workspace backup in **Settings → Backup & recovery** and restore it there. Restore replaces current business records and requires confirmation. Backup files contain business records but exclude user accounts and credentials; store backups securely. The SQLite file in `data/fragma.sqlite` also contains local user account hashes and should not be copied to a public repository.
 
 ## Marketplace integration status
 
@@ -48,9 +51,9 @@ Do not scrape marketplace pages or use unofficial endpoints. Only show a live co
 
 ## Next production milestones
 
-1. Move operational records out of browser storage into SQLite-backed server APIs with migrations, validation, audit events, and backups.
-2. Enforce role permissions for every business-data API and harden deployment sessions, CSRF protections, monitoring, and recovery.
-3. Add official marketplace connectors and background sync jobs, then settlement import and reconciliation.
+1. Before any public or multi-location deployment, add automated off-device backups, tested recovery procedures, deployment secrets, HTTPS, durable sessions, CSRF defenses, monitoring, and an explicit data-retention policy.
+2. Replace sample marketplace records with verified imports, then reconcile orders, inventory reservations, cancellations, returns, fees, and settlements.
+3. Add official marketplace connectors and background sync jobs only after the needed partner access and seller authorization are approved.
 
 Keep the first production deployment a modular monolith. Kubernetes, event streaming, and paid analytics are unnecessary for the initial use case. Hosting and database costs depend on the provider selected for deployment.
 
@@ -61,6 +64,6 @@ The local demo needs no marketplace credentials. `.env.example` contains placeho
 - `index.html` — app entry point
 - `auth.js` — sign-in and first Owner setup screens
 - `app.js` — demo workflows and role-specific interface
-- `server.js` / `dev-server.js` — local HTTP server, SQLite accounts, sessions, and Owner-only user API
+- `server.js` / `dev-server.js` — local HTTP server, SQLite users and workspace records, sessions, role checks, audit, and Owner-only user and backup APIs
 - `setup-owner.js` — optional first-owner bootstrap helper
 - `styles.css` — responsive dark interface

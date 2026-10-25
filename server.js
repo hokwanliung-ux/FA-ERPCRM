@@ -16,6 +16,14 @@ db.exec(`CREATE TABLE IF NOT EXISTS users (
  salt TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL,
  active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`);
+db.exec(`CREATE TABLE IF NOT EXISTS business_state (
+ id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+ updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS audit_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, user_name TEXT NOT NULL, role TEXT NOT NULL,
+ action TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`);
 const sessions = new Map();
 const attempts = new Map();
 const sessionMs = 12 * 60 * 60 * 1000;
@@ -38,10 +46,10 @@ async function provisionOwner() {
   fs.unlinkSync(bootstrapPath);
   console.log('Initial Owner account created. Bootstrap credential file removed; password is stored as a salted hash.');
 }
-function readBody(req) {
+function readBody(req, limit = 32768) {
   return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', chunk => { body += chunk; if (body.length > 32768) { reject(new Error('Request too large')); req.destroy(); } });
+    req.on('data', chunk => { body += chunk; if (body.length > limit) { reject(new Error('Request too large')); req.destroy(); } });
     req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { reject(new Error('Invalid JSON')); } });
     req.on('error', reject);
   });
@@ -66,11 +74,93 @@ function originAllowed(req) {
   return !origin || origin === `http://${req.headers.host}`;
 }
 function publicUser(user) { return { id: user.id, name: user.name, email: user.email, role: user.role, active: Boolean(user.active) }; }
+function validWorkspaceState(state) {
+  const arrays = ['products','orders','cases','customers','leads','movements','activity','syncHistory'];
+  if(!state||typeof state!=='object'||Array.isArray(state)||!arrays.every(key=>Array.isArray(state[key]))||!state.settings||typeof state.settings!=='object'||Array.isArray(state.settings))return false;
+  const unique=(values)=>new Set(values).size===values.length;
+  if(!unique(state.products.map(p=>p?.sku))||!unique(state.orders.map(o=>o?.id)))return false;
+  if(state.products.some(p=>!p||typeof p.sku!=='string'||!p.sku.trim()||typeof p.name!=='string'||!Number.isInteger(p.stock)||p.stock<0||!Number.isInteger(p.threshold)||p.threshold<0||![p.cost,p.price].every(n=>Number.isFinite(n)&&n>=0)))return false;
+  if(state.orders.some(o=>!o||typeof o.id!=='string'||!Array.isArray(o.items)||o.items.some(i=>!Array.isArray(i)||typeof i[0]!=='string'||!Number.isInteger(i[1])||i[1]<1)||![o.total,o.fees].every(n=>Number.isFinite(n)&&n>=0)))return false;
+  if(state.movements.some(m=>!m||typeof m.sku!=='string'||!Number.isInteger(m.qty)))return false;
+  return true;
+}
+function recordAudit(user, action) {
+  db.prepare('INSERT INTO audit_events(user_id,user_name,role,action) VALUES(?,?,?,?)').run(user.id,user.name,user.role,String(action).slice(0,240));
+}
 async function handler(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'same-origin');
   const url = new URL(req.url, 'http://localhost');
+  if (url.pathname.startsWith('/api/state') || url.pathname.startsWith('/api/backup') || url.pathname.startsWith('/api/audit')) {
+    const session=sessionFor(req);
+    if(!session?.user?.active)return send(res,401,{error:'Sign in required.'});
+    if(req.method==='GET'&&url.pathname==='/api/state'){
+      const row=db.prepare('SELECT payload,updated_at FROM business_state WHERE id=1').get();
+      if(!row)return send(res,200,{state:null,updatedAt:null,revision:0});
+      const full=JSON.parse(row.payload);
+      const readable={
+        'Owner/Admin':Object.keys(full),
+        Operations:['products','orders','movements','activity','settings','lastSync','syncHistory'],
+        Support:['products','orders','cases','customers','activity','settings'],
+        Viewer:['products','orders','cases','customers','leads','movements','activity','lastSync','syncHistory']
+      }[session.user.role]||[];
+      return send(res,200,{state:Object.fromEntries(readable.filter(key=>key in full).map(key=>[key,full[key]])),updatedAt:row.updated_at,revision:row.revision});
+    }
+    if(req.method==='PUT'&&url.pathname==='/api/state'){
+      if(!originAllowed(req))return send(res,403,{error:'Request origin rejected.'});
+      let body;try{body=await readBody(req,2_000_000)}catch(e){return send(res,400,{error:e.message})}
+      const row=db.prepare('SELECT payload FROM business_state WHERE id=1').get();
+      const allowed={
+        'Owner/Admin':new Set(['products','orders','cases','customers','leads','movements','activity','settings','lastSync','syncHistory']),
+        Operations:new Set(['products','orders','movements','activity','settings','lastSync','syncHistory']),
+        Support:new Set(['cases','customers','activity']),
+        Viewer:new Set()
+      }[session.user.role]||new Set();
+      let payloadState;
+      if(!row){if(session.user.role!=='Owner/Admin'||body.initialize!==true||!validWorkspaceState(body.state))return send(res,403,{error:'An Owner/Admin must initialize the workspace first.'});payloadState=body.state;}
+      else {
+        if(!Number.isInteger(body.revision)||body.revision!==row.revision)return send(res,409,{error:'Workspace data changed in another session. Your view has been refreshed; please reapply your last change.'});
+        let previous;try{previous=JSON.parse(row.payload)}catch{return send(res,500,{error:'Stored workspace data is invalid.'})}
+        if(!body.changes||typeof body.changes!=='object'||Array.isArray(body.changes))return send(res,400,{error:'Workspace changes are invalid.'});
+        const changed=Object.keys(body.changes);
+        if(changed.some(key=>!allowed.has(key)))return send(res,403,{error:`Your role cannot change: ${changed.filter(key=>!allowed.has(key)).join(', ')}.`});
+        if(!changed.length)return send(res,200,{ok:true,unchanged:true});
+        payloadState={...previous,...body.changes};
+      }
+      if(!validWorkspaceState(payloadState))return send(res,400,{error:'Workspace data is incomplete or invalid.'});
+      const payload=JSON.stringify(payloadState);
+      if(Buffer.byteLength(payload)>2_000_000)return send(res,413,{error:'Workspace data exceeds the 2 MB limit.'});
+      db.prepare(`INSERT INTO business_state(id,payload,revision,updated_at) VALUES(1,?,1,CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,revision=business_state.revision+1,updated_at=CURRENT_TIMESTAMP`).run(payload);
+      recordAudit(session.user,body.initialize?'Workspace initialized':(String(body.action||'Workspace records updated').slice(0,240)));
+      return send(res,200,{ok:true,...db.prepare('SELECT updated_at AS updatedAt,revision FROM business_state WHERE id=1').get()});
+    }
+    if(req.method==='GET'&&url.pathname==='/api/backup'){
+      if(!ownerRoles.has(session.user.role))return send(res,403,{error:'Owner/Admin access required.'});
+      const row=db.prepare('SELECT payload,updated_at FROM business_state WHERE id=1').get();
+      if(!row)return send(res,404,{error:'No workspace data to back up yet.'});
+      const backup=JSON.stringify({format:'fragma-workspace-backup',version:1,exportedAt:new Date().toISOString(),state:JSON.parse(row.payload)},null,2);
+      res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':'attachment; filename="fragma-workspace-backup.json"','Cache-Control':'no-store'});
+      return res.end(backup);
+    }
+    if(req.method==='POST'&&url.pathname==='/api/backup/restore'){
+      if(!originAllowed(req))return send(res,403,{error:'Request origin rejected.'});
+      if(!ownerRoles.has(session.user.role))return send(res,403,{error:'Owner/Admin access required.'});
+      let body;try{body=await readBody(req,2_000_000)}catch(e){return send(res,400,{error:e.message})}
+      if(body.format!=='fragma-workspace-backup'||body.version!==1||!validWorkspaceState(body.state))return send(res,400,{error:'This is not a valid Fragma workspace backup.'});
+      const payload=JSON.stringify(body.state);
+      if(Buffer.byteLength(payload)>2_000_000)return send(res,413,{error:'Backup exceeds the 2 MB limit.'});
+      db.prepare(`INSERT INTO business_state(id,payload,revision,updated_at) VALUES(1,?,1,CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,revision=business_state.revision+1,updated_at=CURRENT_TIMESTAMP`).run(payload);
+      recordAudit(session.user,'Restored workspace backup');
+      return send(res,200,{ok:true,...db.prepare('SELECT revision FROM business_state WHERE id=1').get()});
+    }
+    if(req.method==='GET'&&url.pathname==='/api/audit'){
+      if(!ownerRoles.has(session.user.role))return send(res,403,{error:'Owner/Admin access required.'});
+      return send(res,200,{events:db.prepare('SELECT user_name,role,action,created_at FROM audit_events ORDER BY id DESC LIMIT 100').all()});
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/api/session') {
     const session = sessionFor(req);
     return send(res, 200, { user: session?.user?.active ? publicUser(session.user) : null, setupRequired: db.prepare('SELECT COUNT(*) AS n FROM users').get().n === 0 });
@@ -128,6 +218,39 @@ async function handler(req, res) {
       if (String(error.message).includes('UNIQUE')) return send(res, 409, { error: 'A user with that email already exists.' });
       throw error;
     }
+  }
+  const userRoute = url.pathname.match(/^\/api\/users\/(\d+)$/);
+  if (userRoute && ['PUT','DELETE'].includes(req.method)) {
+    if (!originAllowed(req)) return send(res,403,{error:'Request origin rejected.'});
+    const session=sessionFor(req);
+    if(!session?.user?.active)return send(res,401,{error:'Sign in required.'});
+    if(!ownerRoles.has(session.user.role))return send(res,403,{error:'Owner/Admin access required.'});
+    const targetId=Number(userRoute[1]);
+    const target=db.prepare('SELECT id,name,email,role,active FROM users WHERE id=?').get(targetId);
+    if(!target)return send(res,404,{error:'User not found.'});
+    if(req.method==='DELETE'){
+      if(targetId===session.user.id)return send(res,400,{error:'You cannot delete the account you are signed in with.'});
+      db.prepare('DELETE FROM users WHERE id=?').run(targetId);
+      for(const [token,entry] of sessions)if(entry.userId===targetId)sessions.delete(token);
+      return send(res,200,{ok:true});
+    }
+    let body;
+    try{body=await readBody(req)}catch(e){return send(res,400,{error:e.message})}
+    const name=body.name===undefined?target.name:String(body.name).trim();
+    const email=body.email===undefined?target.email:String(body.email).trim().toLowerCase();
+    const role=body.role===undefined?target.role:String(body.role);
+    const password=String(body.password||'');
+    if(name.length<2||name.length>100||!(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))||email.length>254)return send(res,400,{error:'Enter a valid name and email address.'});
+    if(!roles.has(role)&&!ownerRoles.has(role))return send(res,400,{error:'Select a valid workspace role.'});
+    if(targetId===session.user.id&&role!=='Owner/Admin')return send(res,400,{error:'You cannot remove your own Owner/Admin role.'});
+    if(password&&(password.length<10||password.length>200))return send(res,400,{error:'Passwords must be at least 10 characters.'});
+    let result;
+    try{
+      if(password){const {salt,hash}=await hashPassword(password);result=db.prepare('UPDATE users SET name=?,email=?,role=?,salt=?,password_hash=? WHERE id=?').run(name,email,role,salt,hash,targetId)}
+      else result=db.prepare('UPDATE users SET name=?,email=?,role=? WHERE id=?').run(name,email,role,targetId);
+    }catch(error){if(String(error.message).includes('UNIQUE'))return send(res,409,{error:'A user with that email already exists.'});throw error}
+    const updated=db.prepare('SELECT id,name,email,role,active FROM users WHERE id=?').get(targetId);
+    return send(res,200,{user:publicUser(updated)});
   }
   if (req.method === 'GET' && url.pathname === '/api/users') {
     const session = sessionFor(req);
