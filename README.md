@@ -4,10 +4,10 @@ A dark commerce-operations workspace for a small marketplace business. This loca
 
 ## Current system version
 
-- **Version:** 1.0.5
+- **Version:** 1.0.6
 - **Status:** Published to GitHub main
 - **Updated:** 26 October 2026
-- **Highlights:** Import uses side-by-side entry and live calculation panels on desktop, stacked on smaller screens. The preview includes a batch summary, per-product purchase and HPP calculations, CBM and allocation ratios, and category-by-category shared and direct expense allocations per product and per unit. All monetary values support decimals and Indonesian currency formatting. Finalization is blocked until required values and allocations are valid.
+- **Highlights:** Import uses side-by-side entry and live calculation panels on desktop, stacked on smaller screens. The live preview distinguishes fixed shipment totals from the customs duty rate per CBM. Customs duty totals and per-SKU/per-unit allocations are calculated from CBM, and only the calculated amount enters import expenses and HPP. The preview shows purchase costs, CBM, expenses, landed cost, and HPP before finalization.
 - **Scope:** Local SQLite workspace. TikTok Shop and Tokopedia are not connected, and Shopee SKU is a catalog mapping only. Import batches are internal records; finalizing one adds inventory only to this workspace.
 
 The app's **System version** page shows this release information and the available modules.
@@ -35,7 +35,7 @@ Business records are stored in the local SQLite database, so signed-in users on 
 - Dashboard sales summaries, marketplace breakdown, recent orders, low-stock watch, and activity.
 - Searchable order and fulfillment queues; update sample order status and tracking.
 - Owner/Operations TikTok Shop and Tokopedia seller export import for `.xlsx`, `.csv`, and `.tsv`; previews, groups product rows by marketplace order, de-duplicates repeated lines and re-imports, and retains canceled/return orders with explicit statuses.
-- Product catalog with permanent Main SKUs and required Tokopedia, TikTok Shop and Shopee SKU references; new products start with zero stock and stock can only be received through New Import; New Import supports multiple existing SKUs, decimal CNY or USD unit prices, manual exchange rates, calculated per-product and batch purchase totals in transaction currency and IDR, dimensions, CBM-based shared shipping cost allocation, product-specific customs duty and taxes, categorized expense totals, landed cost, per-batch HPP in IDR, and stock receipt on finalization. The full calculation is previewed before finalization. Products show latest batch HPP and preserved import history. Inventory count, adjustment, reorder point and stock movement history are also available.
+- Product catalog with permanent Main SKUs and required Tokopedia, TikTok Shop and Shopee SKU references; new products start with zero stock and stock can only be received through New Import; New Import supports multiple existing SKUs, decimal CNY or USD unit prices, manual exchange rates, calculated per-product and batch purchase totals in transaction currency and IDR, dimensions, CBM-based allocation of fixed shared expenses, customs duty calculated from a per-CBM rate, product-specific taxes and costs, categorized expense totals, landed cost, per-batch HPP in IDR, and stock receipt on finalization. The full calculation is previewed before finalization. Products show latest batch HPP and preserved import history. Inventory count, adjustment, reorder point and stock movement history are also available.
 - Support and returns cases; customer records and a lightweight lead pipeline.
 - Operational report estimates and CSV exports.
 - Marketplace connection checklist and demo sync history. Demo sync records an attempt without contacting any store.
@@ -44,7 +44,7 @@ Business records are stored in the local SQLite database, so signed-in users on 
 
 ## Data boundaries
 
-Marketplace connections are not live. Orders imported from seller exports are workspace records, not marketplace API syncs. Order imports omit buyer names, usernames, phone numbers, addresses, and messages; they do not update stock or post anything to a marketplace. Finalized New Import batches update only internal stock and cost records. Shared import expenses are allocated by CBM; enter duties against product lines using official customs statement amounts. Fees absent from the workbook remain marked unavailable, and reports exclude built-in sample orders after the first real import. Marketplace buyer data must not be contacted outside platform rules. Never enter marketplace credentials in this demo.
+Marketplace connections are not live. Orders imported from seller exports are workspace records, not marketplace API syncs. Order imports omit buyer names, usernames, phone numbers, addresses, and messages; they do not update stock or post anything to a marketplace. Finalized New Import batches update only internal stock and cost records. Fixed shared import expenses are allocated by CBM. Customs duty is entered as an IDR/CBM rate and calculated as rate × shipment CBM, then allocated to each SKU based on its CBM. Product-specific duties and taxes can still be entered against product lines. Fees absent from the workbook remain marked unavailable, and reports exclude built-in sample orders after the first real import. Marketplace buyer data must not be contacted outside platform rules. Never enter marketplace credentials in this demo.
 
 Owner/Admin can download a JSON workspace backup in **Settings → Backup & recovery** and restore it there. Restore replaces current business records and requires confirmation. Backup files contain business records but exclude user accounts and credentials; store backups securely. The SQLite file in `data/fragma.sqlite` also contains local user account hashes and should not be copied to a public repository.
 
