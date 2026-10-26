@@ -4,10 +4,10 @@ A dark commerce-operations workspace for a small marketplace business. This loca
 
 ## Current system version
 
-- **Version:** 1.0.7
+- **Version:** 1.0.8
 - **Status:** Published to GitHub main
 - **Updated:** 26 October 2026
-- **Highlights:** Import uses side-by-side entry and live calculation panels on desktop, stacked on smaller screens. Product dimensions on New Import are read-only and use the selected SKU catalog dimensions. The live preview distinguishes fixed shipment totals from the customs duty rate per CBM. Customs duty totals and per-SKU/per-unit allocations are calculated from CBM, and only the calculated amount enters import expenses and HPP. The preview shows purchase costs, CBM, expenses, landed cost, and HPP before finalization.
+- **Highlights:** Import uses side-by-side entry and live calculation panels on desktop, stacked on smaller screens. Product dimensions on New Import are read-only and use the selected SKU catalog dimensions. Product lines receive sequential numbers, and the live preview has selectable batch and per-product pages. The live preview distinguishes fixed shipment totals from the customs duty rate per CBM. Customs duty totals and per-SKU/per-unit allocations are calculated from CBM, and only the calculated amount enters import expenses and HPP. The preview shows purchase costs, CBM, expenses, landed cost, and HPP before finalization.
 - **Scope:** Local SQLite workspace. TikTok Shop and Tokopedia are not connected, and Shopee SKU is a catalog mapping only. Import batches are internal records; finalizing one adds inventory only to this workspace.
 
 The app's **System version** page shows this release information and the available modules.
