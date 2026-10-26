@@ -4,10 +4,10 @@ A dark commerce-operations workspace for a small marketplace business. This loca
 
 ## Current system version
 
-- **Version:** 1.0.4
+- **Version:** 1.0.5
 - **Status:** Published to GitHub main
-- **Updated:** 27 October 2026
-- **Highlights:** Import review requires all fields and shows decimal unit prices, per-product and batch purchase totals in transaction currency and IDR, per-product and batch CBM, a categorized import-expense breakdown, total expenses, landed cost and per-unit HPP before finalization. Shared shipping/transport costs are allocated by CBM; customs duty and import taxes are recorded per product. Product prices accept decimals.
+- **Updated:** 26 October 2026
+- **Highlights:** Import uses side-by-side entry and live calculation panels on desktop, stacked on smaller screens. The preview includes a batch summary, per-product purchase and HPP calculations, CBM and allocation ratios, and category-by-category shared and direct expense allocations per product and per unit. All monetary values support decimals and Indonesian currency formatting. Finalization is blocked until required values and allocations are valid.
 - **Scope:** Local SQLite workspace. TikTok Shop and Tokopedia are not connected, and Shopee SKU is a catalog mapping only. Import batches are internal records; finalizing one adds inventory only to this workspace.
 
 The app's **System version** page shows this release information and the available modules.
