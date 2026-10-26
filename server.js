@@ -178,6 +178,13 @@ async function handler(req, res) {
         if(Array.isArray(incomingProducts)&&previous.imports?.some(batch=>(batch.lines||[]).some(line=>!incomingProducts.some(product=>product?.sku===line.sku))))return send(res,400,{error:'A product linked to import history cannot be deleted.'});
         const incomingImports=body.changes?.imports;
         if(Array.isArray(incomingImports)&&previous.imports?.some(old=>!incomingImports.some(next=>next?.id===old.id&&JSON.stringify(next)===JSON.stringify(old))))return send(res,400,{error:'Finalized import history cannot be changed or deleted.'});
+        if(Array.isArray(incomingProducts)){
+          const priorById=new Map(previous.products.map(product=>[product.id,product])),allowedReceipts=new Map(),allowedReturns=new Map();
+          for(const batch of incomingImports||previous.imports||[])if(!(previous.imports||[]).some(old=>old.id===batch.id))for(const line of batch.lines||[])allowedReceipts.set(line.sku,(allowedReceipts.get(line.sku)||0)+line.qty);
+          const changedOrders=body.changes?.orders;
+          if(Array.isArray(changedOrders))for(const order of previous.orders){const updated=changedOrders.find(next=>next?.id===order.id);if(order.stockReserved&&(!updated||!updated.stockReserved))for(const [sku,qty] of order.items)allowedReturns.set(sku,(allowedReturns.get(sku)||0)+qty)}
+          for(const product of incomingProducts){const prior=priorById.get(product?.id),priorStock=prior?.stock||0,permitted=(allowedReceipts.get(product?.sku)||0)+(allowedReturns.get(product?.sku)||0);if(product&&product.stock>priorStock+permitted)return send(res,400,{error:'Stock increases must come from a finalized New Import batch.'})}
+        }
         if(!body.changes||typeof body.changes!=='object'||Array.isArray(body.changes))return send(res,400,{error:'Workspace changes are invalid.'});
         const changed=Object.keys(body.changes);
         if(changed.some(key=>!allowed.has(key)))return send(res,403,{error:`Your role cannot change: ${changed.filter(key=>!allowed.has(key)).join(', ')}.`});
