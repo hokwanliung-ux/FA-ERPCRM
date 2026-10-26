@@ -1,6 +1,16 @@
 # Fragma Alchemy ERP + CRM
 
-A dark commerce-operations workspace for a small marketplace business. This first release combines a local sign-in server with interactive sample workflows. TikTok Shop and Tokopedia are **not connected** and no marketplace API is called.
+A dark commerce-operations workspace for a small marketplace business. This local release candidate combines a local sign-in server with interactive sample workflows. TikTok Shop and Tokopedia are **not connected** and no marketplace API is called.
+
+## Current system version
+
+- **Version:** 1.0.2
+- **Status:** Import batch costing release
+- **Updated:** 26 October 2026
+- **Highlights:** Multi-product import batches with CNY/USD exchange rates, CBM-based shared expense allocation, SKU-specific direct expenses, IDR HPP per batch, stock receipt on finalization, permanent Main SKU references and preserved batch history. Also includes the previous order import review, duplicate handling and revision-aware workspace saves.
+- **Scope:** Local SQLite workspace. TikTok Shop and Tokopedia are not connected. Import batches are internal records; finalizing one adds inventory only to this workspace.
+
+The app's **System version** page shows this release information and the available modules.
 
 ## Run locally
 
@@ -25,7 +35,7 @@ Business records are stored in the local SQLite database, so signed-in users on 
 - Dashboard sales summaries, marketplace breakdown, recent orders, low-stock watch, and activity.
 - Searchable order and fulfillment queues; update sample order status and tracking.
 - Owner/Operations TikTok Shop and Tokopedia seller export import for `.xlsx`, `.csv`, and `.tsv`; previews, groups product rows by marketplace order, de-duplicates repeated lines and re-imports, and retains canceled/return orders with explicit statuses.
-- Product catalog add/edit; inventory count, adjustment, reorder point, and stock movement history with user and time.
+- Product catalog with permanent Main SKUs and optional marketplace SKU references; New Import supports multiple existing SKUs, CNY or USD purchase costs, manual exchange rates, dimensions, CBM-based shared expense allocation, direct product expenses, per-batch HPP in IDR, and stock receipt on finalization. Products show latest batch HPP and preserved import history. Inventory count, adjustment, reorder point and stock movement history are also available.
 - Support and returns cases; customer records and a lightweight lead pipeline.
 - Operational report estimates and CSV exports.
 - Marketplace connection checklist and demo sync history. Demo sync records an attempt without contacting any store.
@@ -34,7 +44,7 @@ Business records are stored in the local SQLite database, so signed-in users on 
 
 ## Data boundaries
 
-Marketplace connections are not live. Orders imported from seller exports are workspace records, not marketplace API syncs. Imports omit buyer names, usernames, phone numbers, addresses, and messages; they do not update stock or post anything to a marketplace. Fees absent from the workbook remain marked unavailable, and reports exclude built-in sample orders after the first real import. Marketplace buyer data must not be contacted outside platform rules. Never enter marketplace credentials in this demo.
+Marketplace connections are not live. Orders imported from seller exports are workspace records, not marketplace API syncs. Order imports omit buyer names, usernames, phone numbers, addresses, and messages; they do not update stock or post anything to a marketplace. Finalized New Import batches update only internal stock and cost records. Shared import expenses are allocated by CBM; enter duties against product lines using official customs statement amounts. Fees absent from the workbook remain marked unavailable, and reports exclude built-in sample orders after the first real import. Marketplace buyer data must not be contacted outside platform rules. Never enter marketplace credentials in this demo.
 
 Owner/Admin can download a JSON workspace backup in **Settings → Backup & recovery** and restore it there. Restore replaces current business records and requires confirmation. Backup files contain business records but exclude user accounts and credentials; store backups securely. The SQLite file in `data/fragma.sqlite` also contains local user account hashes and should not be copied to a public repository.
 

@@ -76,12 +76,14 @@ function originAllowed(req) {
 function publicUser(user) { return { id: user.id, name: user.name, email: user.email, role: user.role, active: Boolean(user.active) }; }
 function validWorkspaceState(state) {
   const arrays = ['products','orders','cases','customers','leads','movements','activity','syncHistory'];
-  if(!state||typeof state!=='object'||Array.isArray(state)||!arrays.every(key=>Array.isArray(state[key]))||!state.settings||typeof state.settings!=='object'||Array.isArray(state.settings))return false;
+  if(!state||typeof state!=='object'||Array.isArray(state)||!arrays.every(key=>Array.isArray(state[key]))||(state.imports!==undefined&&!Array.isArray(state.imports))||!state.settings||typeof state.settings!=='object'||Array.isArray(state.settings))return false;
   const unique=(values)=>new Set(values).size===values.length;
   if(!unique(state.products.map(p=>p?.sku))||!unique(state.orders.map(o=>o?.id)))return false;
   if(state.products.some(p=>!p||typeof p.sku!=='string'||!p.sku.trim()||typeof p.name!=='string'||!Number.isInteger(p.stock)||p.stock<0||!Number.isInteger(p.threshold)||p.threshold<0||![p.cost,p.price].every(n=>Number.isFinite(n)&&n>=0)))return false;
   if(state.orders.some(o=>!o||typeof o.id!=='string'||!Array.isArray(o.items)||o.items.some(i=>!Array.isArray(i)||typeof i[0]!=='string'||!Number.isInteger(i[1])||i[1]<1)||![o.total,o.fees].every(n=>Number.isFinite(n)&&n>=0)))return false;
   if(state.movements.some(m=>!m||typeof m.sku!=='string'||!Number.isInteger(m.qty)))return false;
+  const imports=state.imports||[];
+  if(!unique(imports.map(batch=>batch?.id))||imports.some(batch=>!batch||typeof batch.id!=='string'||!batch.id.trim()||typeof batch.date!=='string'||!batch.date||typeof batch.supplier!=='string'||!['CNY','USD'].includes(batch.currency)||!Number.isFinite(batch.exchangeRate)||batch.exchangeRate<=0||!Number.isFinite(batch.expenses)||batch.expenses<0||!Number.isFinite(batch.totalCbm)||batch.totalCbm<=0||batch.status!=='Finalized'||!Array.isArray(batch.lines)||!batch.lines.length||!unique(batch.lines.map(line=>line?.sku))||batch.lines.some(line=>!line||!state.products.some(product=>product.sku===line.sku)||!Number.isSafeInteger(line.qty)||line.qty<1||![line.unitPrice,line.directExpenses,line.lengthCm,line.widthCm,line.heightCm,line.cbm,line.purchaseCostIdr,line.allocatedExpenses,line.hpp].every(value=>Number.isFinite(value)&&value>=0)||![line.lengthCm,line.widthCm,line.heightCm,line.cbm,line.hpp].every(value=>value>0))))return false;
   return true;
 }
 function recordAudit(user, action) {
@@ -133,7 +135,7 @@ async function handler(req, res) {
             state.orders=[];state.activity.unshift({text:'Owner cleared all order and fulfillment records',time:now});state.activity=state.activity.slice(0,30);return true;
           }
           if(url.pathname==='/api/workspace/clear'){
-            state.products=[];state.orders=[];state.cases=[];state.customers=[];state.leads=[];state.movements=[];state.activity=[];state.syncHistory=[];state.lastSync='Not connected';state.settings={role:'Owner / Admin',warehouse:'Jakarta studio',threshold:10,timezone:'Asia/Jakarta'};return true;
+            state.products=[];state.imports=[];state.orders=[];state.cases=[];state.customers=[];state.leads=[];state.movements=[];state.activity=[];state.syncHistory=[];state.lastSync='Not connected';state.settings={role:'Owner / Admin',warehouse:'Jakarta studio',threshold:10,timezone:'Asia/Jakarta'};return true;
           }
           const oldOrders=state.orders.length,oldCases=state.cases.length,oldActivity=state.activity.length;
           state.orders=state.orders.filter(order=>order.source!=='Demo import'&&!(!order.sourceKey&&/^FA-\d{6}-\d{4}$/.test(String(order.id||''))));
@@ -150,9 +152,9 @@ async function handler(req, res) {
       const full=JSON.parse(row.payload);
       const readable={
         'Owner/Admin':Object.keys(full),
-        Operations:['products','orders','movements','activity','settings','lastSync','syncHistory'],
+        Operations:['products','imports','orders','movements','activity','settings','lastSync','syncHistory'],
         Support:['products','orders','cases','customers','activity','settings'],
-        Viewer:['products','orders','cases','customers','leads','movements','activity','lastSync','syncHistory']
+        Viewer:['products','imports','orders','cases','customers','leads','movements','activity','lastSync','syncHistory']
       }[session.user.role]||[];
       return send(res,200,{state:Object.fromEntries(readable.filter(key=>key in full).map(key=>[key,full[key]])),updatedAt:row.updated_at,revision:row.revision});
     }
@@ -161,8 +163,8 @@ async function handler(req, res) {
       let body;try{body=await readBody(req,2_000_000)}catch(e){return send(res,400,{error:e.message})}
       const row=db.prepare('SELECT payload,revision FROM business_state WHERE id=1').get();
       const allowed={
-        'Owner/Admin':new Set(['products','orders','cases','customers','leads','movements','activity','settings','lastSync','syncHistory']),
-        Operations:new Set(['products','orders','movements','activity','settings','lastSync','syncHistory']),
+        'Owner/Admin':new Set(['products','imports','orders','cases','customers','leads','movements','activity','settings','lastSync','syncHistory']),
+        Operations:new Set(['products','imports','orders','movements','activity','settings','lastSync','syncHistory']),
         Support:new Set(['cases','customers','activity']),
         Viewer:new Set()
       }[session.user.role]||new Set();
@@ -171,6 +173,11 @@ async function handler(req, res) {
       else {
         if(!Number.isInteger(body.revision)||body.revision!==row.revision)return send(res,409,{error:'Workspace data changed in another session. Your view has been refreshed; please reapply your last change.'});
         let previous;try{previous=JSON.parse(row.payload)}catch{return send(res,500,{error:'Stored workspace data is invalid.'})}
+        const incomingProducts=body.changes?.products;
+        if(Array.isArray(incomingProducts)&&previous.products.some(old=>incomingProducts.some(next=>next?.id===old.id&&next.sku!==old.sku)))return send(res,400,{error:'A product Main SKU is permanent and cannot be changed.'});
+        if(Array.isArray(incomingProducts)&&previous.imports?.some(batch=>(batch.lines||[]).some(line=>!incomingProducts.some(product=>product?.sku===line.sku))))return send(res,400,{error:'A product linked to import history cannot be deleted.'});
+        const incomingImports=body.changes?.imports;
+        if(Array.isArray(incomingImports)&&previous.imports?.some(old=>!incomingImports.some(next=>next?.id===old.id&&JSON.stringify(next)===JSON.stringify(old))))return send(res,400,{error:'Finalized import history cannot be changed or deleted.'});
         if(!body.changes||typeof body.changes!=='object'||Array.isArray(body.changes))return send(res,400,{error:'Workspace changes are invalid.'});
         const changed=Object.keys(body.changes);
         if(changed.some(key=>!allowed.has(key)))return send(res,403,{error:`Your role cannot change: ${changed.filter(key=>!allowed.has(key)).join(', ')}.`});
