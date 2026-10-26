@@ -4,10 +4,10 @@ A dark commerce-operations workspace for a small marketplace business. This loca
 
 ## Current system version
 
-- **Version:** 1.0.3
+- **Version:** 1.0.4
 - **Status:** Published to GitHub main
 - **Updated:** 27 October 2026
-- **Highlights:** Product registration now requires all catalog and marketplace SKU fields, including Shopee. New products start at zero stock; only New Import receives stock. Removed manual catalog cost, opening stock and reorder point fields from product entry. Success confirmation added. Import HPP and historical batch records remain available.
+- **Highlights:** Import review requires all fields and shows decimal unit prices, per-product and batch purchase totals in transaction currency and IDR, per-product and batch CBM, a categorized import-expense breakdown, total expenses, landed cost and per-unit HPP before finalization. Shared shipping/transport costs are allocated by CBM; customs duty and import taxes are recorded per product. Product prices accept decimals.
 - **Scope:** Local SQLite workspace. TikTok Shop and Tokopedia are not connected, and Shopee SKU is a catalog mapping only. Import batches are internal records; finalizing one adds inventory only to this workspace.
 
 The app's **System version** page shows this release information and the available modules.
@@ -35,7 +35,7 @@ Business records are stored in the local SQLite database, so signed-in users on 
 - Dashboard sales summaries, marketplace breakdown, recent orders, low-stock watch, and activity.
 - Searchable order and fulfillment queues; update sample order status and tracking.
 - Owner/Operations TikTok Shop and Tokopedia seller export import for `.xlsx`, `.csv`, and `.tsv`; previews, groups product rows by marketplace order, de-duplicates repeated lines and re-imports, and retains canceled/return orders with explicit statuses.
-- Product catalog with permanent Main SKUs and required Tokopedia, TikTok Shop and Shopee SKU references; new products start with zero stock and stock can only be received through New Import; New Import supports multiple existing SKUs, CNY or USD purchase costs, manual exchange rates, dimensions, CBM-based shared expense allocation, direct product expenses, per-batch HPP in IDR, and stock receipt on finalization. Products show latest batch HPP and preserved import history. Inventory count, adjustment, reorder point and stock movement history are also available.
+- Product catalog with permanent Main SKUs and required Tokopedia, TikTok Shop and Shopee SKU references; new products start with zero stock and stock can only be received through New Import; New Import supports multiple existing SKUs, decimal CNY or USD unit prices, manual exchange rates, calculated per-product and batch purchase totals in transaction currency and IDR, dimensions, CBM-based shared shipping cost allocation, product-specific customs duty and taxes, categorized expense totals, landed cost, per-batch HPP in IDR, and stock receipt on finalization. The full calculation is previewed before finalization. Products show latest batch HPP and preserved import history. Inventory count, adjustment, reorder point and stock movement history are also available.
 - Support and returns cases; customer records and a lightweight lead pipeline.
 - Operational report estimates and CSV exports.
 - Marketplace connection checklist and demo sync history. Demo sync records an attempt without contacting any store.
