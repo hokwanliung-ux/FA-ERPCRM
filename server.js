@@ -14,8 +14,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  name TEXT NOT NULL, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
  salt TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL,
+ permissions TEXT NOT NULL DEFAULT '{}',
  active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`);
+if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'permissions')) db.exec("ALTER TABLE users ADD COLUMN permissions TEXT NOT NULL DEFAULT '{}'");
 db.exec(`CREATE TABLE IF NOT EXISTS business_state (
  id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -28,7 +30,64 @@ const sessions = new Map();
 const attempts = new Map();
 const sessionMs = 12 * 60 * 60 * 1000;
 const ownerRoles = new Set(['Owner/Admin']);
-const roles = new Set(['Operations', 'Support', 'Viewer']);
+const roles = new Set(['Operations', 'Support', 'Viewer', 'Sub-admin']);
+const managedPages = ['Dashboard','Orders','Fulfillment','Products','New Import','Inventory','Customers','Sales pipeline','Support & returns','Reports','Connections','Settings','System version'];
+const subAdminDataPages = {products:['Products','Inventory','New Import','Orders','Fulfillment'],imports:['New Import'],orders:['Orders','Fulfillment'],cases:['Support & returns'],customers:['Customers','Support & returns'],leads:['Sales pipeline'],movements:['Inventory','New Import','Orders','Fulfillment'],activity:['Products','New Import','Orders','Customers','Sales pipeline','Support & returns'],settings:['Settings'],lastSync:['Connections'],syncHistory:['Connections']};
+function normalizePermissions(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  for (const page of managedPages) {
+    const actions = value[page];
+    if (!Array.isArray(actions)) continue;
+    const allowed = [...new Set(actions.filter(action => ['read','create','update','delete'].includes(action)))];
+    if (allowed.some(action => action !== 'read') && !allowed.includes('read')) allowed.unshift('read');
+    if (allowed.length) result[page] = allowed;
+  }
+  return result;
+}
+function can(user, page, action='read') { return user.role === 'Owner/Admin' || user.role !== 'Sub-admin' || normalizePermissions(user.permissions)[page]?.includes(action); }
+function arrayActions(before, after) {
+  const oldMap = new Map((before || []).map(item => [item?.id, item]));
+  const newMap = new Map((after || []).map(item => [item?.id, item]));
+  const actions = new Set();
+  if ([...newMap.keys()].some(id => !oldMap.has(id))) actions.add('create');
+  if ([...oldMap.keys()].some(id => !newMap.has(id))) actions.add('delete');
+  if ([...newMap.keys()].some(id => oldMap.has(id) && JSON.stringify(newMap.get(id)) !== JSON.stringify(oldMap.get(id)))) actions.add('update');
+  return actions.size ? [...actions] : ['read'];
+}
+function canChangeSubAdminState(user, previous, changes) {
+  const touched = Object.keys(changes || {});
+  const pageFor = {imports:'New Import',orders:'Orders',cases:'Support & returns',customers:'Customers',leads:'Sales pipeline',settings:'Settings',syncHistory:'Connections',lastSync:'Connections'};
+  for (const key of touched) {
+    const next = changes[key], old = previous[key];
+    if (key === 'activity') return false;
+    if (key === 'products') {
+      for (const item of next || []) {
+        const prior = (old || []).find(record => record.id === item.id);
+        if (!prior) { if (!can(user,'Products','create')) return false; continue; }
+        const changed = Object.keys(item).filter(field => JSON.stringify(item[field]) !== JSON.stringify(prior[field]));
+        if (!changed.length) continue;
+        const stockFields=changed.filter(field=>['stock','cost'].includes(field)),catalogFields=changed.filter(field=>!['stock','cost'].includes(field));
+        if(catalogFields.length&&!can(user,'Products','update'))return false;
+        if(stockFields.length&&!can(user,'Inventory','update')&&!(can(user,'New Import','create')||can(user,'Orders','create')||can(user,'Orders','update')||can(user,'Orders','delete')))return false;
+      }
+      if ((old || []).some(item => !(next || []).some(record => record.id === item.id)) && !can(user,'Products','delete')) return false;
+      continue;
+    }
+    if (key === 'movements') {
+      const sourcePage = touched.includes('imports') ? 'New Import' : touched.includes('orders') ? 'Orders' : 'Inventory';
+      const actions = touched.includes('imports') ? ['create'] : touched.includes('orders') ? arrayActions(previous.orders, changes.orders) : ['update'];
+      if (!actions.every(action=>can(user,sourcePage,action))) return false;
+      continue;
+    }
+    const page = pageFor[key];
+    if (!page) return false;
+    const actions = ['settings','lastSync','syncHistory'].includes(key) ? [key==='settings'?'update':'create'] : arrayActions(old,next);
+    const permitted = key==='customers' ? actions.every(action=>can(user,'Customers',action)||can(user,'Support & returns',action)) : actions.every(action=>can(user,page,action));
+    if (!permitted) return false;
+  }
+  return true;
+}
 const publicFiles = new Map([['/', 'index.html'], ['/index.html', 'index.html'], ['/styles.css', 'styles.css'], ['/app.js', 'app.js'], ['/auth.js', 'auth.js']]);
 
 async function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
@@ -67,13 +126,15 @@ function sessionFor(req) {
   const entry = sessions.get(token);
   if (!entry) return null;
   if (entry.expires < Date.now()) { sessions.delete(token); return null; }
-  return { token, user: db.prepare('SELECT id,name,email,role,active FROM users WHERE id=?').get(entry.userId) };
+  const user=db.prepare('SELECT id,name,email,role,active,permissions FROM users WHERE id=?').get(entry.userId);
+  if(user)try{user.permissions=JSON.parse(user.permissions||'{}')}catch{user.permissions={}}
+  return { token, user };
 }
 function originAllowed(req) {
   const origin = req.headers.origin;
   return !origin || origin === `http://${req.headers.host}`;
 }
-function publicUser(user) { return { id: user.id, name: user.name, email: user.email, role: user.role, active: Boolean(user.active) }; }
+function publicUser(user) { let permissions=user.permissions||{};if(typeof permissions==='string')try{permissions=JSON.parse(permissions)}catch{permissions={}};return { id: user.id, name: user.name, email: user.email, role: user.role, active: Boolean(user.active), permissions: normalizePermissions(permissions) }; }
 function validWorkspaceState(state) {
   const arrays = ['products','orders','cases','customers','leads','movements','activity','syncHistory'];
   if(!state||typeof state!=='object'||Array.isArray(state)||!arrays.every(key=>Array.isArray(state[key]))||(state.imports!==undefined&&!Array.isArray(state.imports))||!state.settings||typeof state.settings!=='object'||Array.isArray(state.settings))return false;
@@ -154,7 +215,8 @@ async function handler(req, res) {
         'Owner/Admin':Object.keys(full),
         Operations:['products','imports','orders','movements','activity','settings','lastSync','syncHistory'],
         Support:['products','orders','cases','customers','activity','settings'],
-        Viewer:['products','imports','orders','cases','customers','leads','movements','activity','lastSync','syncHistory']
+        Viewer:['products','imports','orders','cases','customers','leads','movements','activity','lastSync','syncHistory'],
+        'Sub-admin':Object.keys(subAdminDataPages).filter(key => subAdminDataPages[key].some(page=>can(session.user,page,'read')))
       }[session.user.role]||[];
       return send(res,200,{state:Object.fromEntries(readable.filter(key=>key in full).map(key=>[key,full[key]])),updatedAt:row.updated_at,revision:row.revision});
     }
@@ -166,6 +228,7 @@ async function handler(req, res) {
         'Owner/Admin':new Set(['products','imports','orders','cases','customers','leads','movements','activity','settings','lastSync','syncHistory']),
         Operations:new Set(['products','imports','orders','movements','activity','settings','lastSync','syncHistory']),
         Support:new Set(['cases','customers','activity']),
+        'Sub-admin':new Set(['products','imports','orders','cases','customers','leads','movements','settings','lastSync','syncHistory']),
         Viewer:new Set()
       }[session.user.role]||new Set();
       let payloadState;
@@ -187,6 +250,7 @@ async function handler(req, res) {
         }
         if(!body.changes||typeof body.changes!=='object'||Array.isArray(body.changes))return send(res,400,{error:'Workspace changes are invalid.'});
         const changed=Object.keys(body.changes);
+        if(session.user.role==='Sub-admin'&&!canChangeSubAdminState(session.user,previous,body.changes))return send(res,403,{error:'Your menu permissions do not allow this change.'});
         if(changed.some(key=>!allowed.has(key)))return send(res,403,{error:`Your role cannot change: ${changed.filter(key=>!allowed.has(key)).join(', ')}.`});
         if(!changed.length)return send(res,200,{ok:true,unchanged:true});
         payloadState={...previous,...body.changes};
@@ -272,11 +336,13 @@ async function handler(req, res) {
     if (name.length < 2 || name.length > 100) return send(res, 400, { error: 'Enter a name between 2 and 100 characters.' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return send(res, 400, { error: 'Enter a valid email address.' });
     if (password.length < 10 || password.length > 200) return send(res, 400, { error: 'New user passwords must be at least 10 characters.' });
-    if (!roles.has(role)) return send(res, 400, { error: 'Select Operations, Support, or Viewer.' });
+    if (!roles.has(role)) return send(res, 400, { error: 'Select Operations, Support, Viewer, or Sub-admin.' });
+    const permissions=role==='Sub-admin'?normalizePermissions(body.permissions):{};
+    if(role==='Sub-admin'&&!Object.keys(permissions).length)return send(res,400,{error:'Select at least one menu permission for the sub-admin.'});
     const { salt, hash } = await hashPassword(password);
     try {
-      const result = db.prepare('INSERT INTO users(name,email,salt,password_hash,role) VALUES(?,?,?,?,?)').run(name, email, salt, hash, role);
-      return send(res, 201, { user: publicUser(db.prepare('SELECT id,name,email,role,active FROM users WHERE id=?').get(Number(result.lastInsertRowid))) });
+      const result = db.prepare('INSERT INTO users(name,email,salt,password_hash,role,permissions) VALUES(?,?,?,?,?,?)').run(name, email, salt, hash, role, JSON.stringify(permissions));
+      return send(res, 201, { user: publicUser(db.prepare('SELECT id,name,email,role,active,permissions FROM users WHERE id=?').get(Number(result.lastInsertRowid))) });
     } catch (error) {
       if (String(error.message).includes('UNIQUE')) return send(res, 409, { error: 'A user with that email already exists.' });
       throw error;
@@ -289,7 +355,8 @@ async function handler(req, res) {
     if(!session?.user?.active)return send(res,401,{error:'Sign in required.'});
     if(!ownerRoles.has(session.user.role))return send(res,403,{error:'Owner/Admin access required.'});
     const targetId=Number(userRoute[1]);
-    const target=db.prepare('SELECT id,name,email,role,active FROM users WHERE id=?').get(targetId);
+    const target=db.prepare('SELECT id,name,email,role,active,permissions FROM users WHERE id=?').get(targetId);
+    if(target)try{target.permissions=JSON.parse(target.permissions||'{}')}catch{target.permissions={}}
     if(!target)return send(res,404,{error:'User not found.'});
     if(req.method==='DELETE'){
       if(targetId===session.user.id)return send(res,400,{error:'You cannot delete the account you are signed in with.'});
@@ -302,24 +369,26 @@ async function handler(req, res) {
     const name=body.name===undefined?target.name:String(body.name).trim();
     const email=body.email===undefined?target.email:String(body.email).trim().toLowerCase();
     const role=body.role===undefined?target.role:String(body.role);
+    const permissions=role==='Sub-admin'?normalizePermissions(body.permissions===undefined?target.permissions:body.permissions):{};
     const password=String(body.password||'');
     if(name.length<2||name.length>100||!(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))||email.length>254)return send(res,400,{error:'Enter a valid name and email address.'});
     if(!roles.has(role)&&!ownerRoles.has(role))return send(res,400,{error:'Select a valid workspace role.'});
+    if(role==='Sub-admin'&&!Object.keys(permissions).length)return send(res,400,{error:'Select at least one menu permission for the sub-admin.'});
     if(targetId===session.user.id&&role!=='Owner/Admin')return send(res,400,{error:'You cannot remove your own Owner/Admin role.'});
     if(password&&(password.length<10||password.length>200))return send(res,400,{error:'Passwords must be at least 10 characters.'});
     let result;
     try{
-      if(password){const {salt,hash}=await hashPassword(password);result=db.prepare('UPDATE users SET name=?,email=?,role=?,salt=?,password_hash=? WHERE id=?').run(name,email,role,salt,hash,targetId)}
-      else result=db.prepare('UPDATE users SET name=?,email=?,role=? WHERE id=?').run(name,email,role,targetId);
+      if(password){const {salt,hash}=await hashPassword(password);result=db.prepare('UPDATE users SET name=?,email=?,role=?,permissions=?,salt=?,password_hash=? WHERE id=?').run(name,email,role,JSON.stringify(permissions),salt,hash,targetId)}
+      else result=db.prepare('UPDATE users SET name=?,email=?,role=?,permissions=? WHERE id=?').run(name,email,role,JSON.stringify(permissions),targetId);
     }catch(error){if(String(error.message).includes('UNIQUE'))return send(res,409,{error:'A user with that email already exists.'});throw error}
-    const updated=db.prepare('SELECT id,name,email,role,active FROM users WHERE id=?').get(targetId);
+    const updated=db.prepare('SELECT id,name,email,role,active,permissions FROM users WHERE id=?').get(targetId);
     return send(res,200,{user:publicUser(updated)});
   }
   if (req.method === 'GET' && url.pathname === '/api/users') {
     const session = sessionFor(req);
     if (!session?.user?.active) return send(res, 401, { error: 'Sign in required.' });
     if (!ownerRoles.has(session.user.role)) return send(res, 403, { error: 'Owner/Admin access required.' });
-    const users = db.prepare('SELECT id,name,email,role,active,created_at FROM users ORDER BY id').all().map(publicUser);
+    const users = db.prepare('SELECT id,name,email,role,active,permissions,created_at FROM users ORDER BY id').all().map(publicUser);
     return send(res, 200, { users });
   }
   const fileName = publicFiles.get(url.pathname);
