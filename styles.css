@@ -29,16 +29,20 @@ body{min-height:100vh;height:auto;overflow-x:hidden;overflow-y:visible}
 .user-access-dialog .access-intro{padding:12px 14px;border:1px solid #384332;border-radius:10px;background:linear-gradient(120deg,#222b1c,#1b201a)}
 .user-access-dialog .access-intro strong{font:700 15px Manrope,sans-serif}
 .permission-matrix-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#141814}
-.permission-matrix{width:100%;min-width:660px;border-collapse:collapse}
+.permission-matrix{width:100%;min-width:760px;border-collapse:collapse;table-layout:fixed}
+.permission-matrix th:first-child{width:42%}
+.permission-matrix th:not(:first-child),.permission-matrix td{width:14.5%}
 .permission-matrix th,.permission-matrix td{padding:9px 14px;border-bottom:1px solid #282e28}
 .permission-matrix thead th{position:sticky;top:0;z-index:1;background:#202620;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.55px;text-transform:uppercase}
-.permission-matrix thead th:not(:first-child),.permission-matrix td{text-align:center;width:105px}
+.permission-matrix thead th:first-child{text-align:left}
+.permission-matrix thead th:not(:first-child),.permission-matrix td{text-align:center}
 .permission-matrix tbody th{text-align:left;font-size:13px;font-weight:600}
 .permission-matrix tbody tr:hover{background:#1b211b}
 .permission-matrix tbody tr:last-child th,.permission-matrix tbody tr:last-child td{border-bottom:0}
-.permission-toggle{display:inline-grid;place-items:center;width:34px;height:30px;border:1px solid #343d34;border-radius:8px;background:#191e19;cursor:pointer;transition:.15s ease}
+.permission-toggle{position:relative;display:inline-grid;place-items:center;width:34px;height:30px;border:1px solid #343d34;border-radius:8px;background:#191e19;cursor:pointer;transition:.15s ease}
 .permission-toggle:hover{border-color:var(--green2);background:#232b20}
 .permission-toggle:has(input:checked){border-color:var(--green2);background:#29371e;box-shadow:0 0 0 2px #9abc4b20}
 .permission-toggle input{width:15px;height:15px;accent-color:var(--green);cursor:pointer}
+.permission-toggle .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 .user-access-dialog .form-actions{gap:16px}
 @media(max-width:700px){.user-access-dialog .card-heading{margin:-12px -12px 4px;padding:14px}.user-access-dialog .permission-matrix th,.user-access-dialog .permission-matrix td{padding:8px}.user-access-dialog .form-grid{grid-template-columns:1fr}.user-access-dialog .field.full{grid-column:1}}
