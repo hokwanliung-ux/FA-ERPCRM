@@ -4,7 +4,7 @@ A dark commerce-operations workspace for a small marketplace business. This loca
 
 ## Current system version
 
-- **Version:** 1.0.23
+- **Version:** 1.0.24
 - **Status:** Published to GitHub main
 - **Updated:** 29 October 2026
 - **Created by:** Steven Hollis
